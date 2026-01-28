@@ -10,7 +10,8 @@ services:
       WEBHOOK_SECRET: testsecret
       LOG_LEVEL: INFO
     volumes:
-      - db-data:/data
+      - db_data:/data
 
 volumes:
   db_data:
+
