@@ -8,4 +8,4 @@ logs:
 	docker compose logs -f api
 
 tests:
-	pytest -v
+	pytest -m pytest tests/
