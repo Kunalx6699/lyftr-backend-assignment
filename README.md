@@ -148,7 +148,45 @@ Each request emits a JSON log line:
 }
 ```
 
+---
+
+## Design Decisions
+
+### HMAC Verification
+We compute an HMAC SHA256 hash of the raw request body using the shared
+secret (`WEBHOOK_SECRET`) and compare it with the `X-Signature` header
+using `hmac.compare_digest` to avoid timing attacks.
+
+### Pagination Contract
+The `/messages` endpoint uses `limit` and `offset` query parameters.
+The response always includes:
+
+- `data`
+- `total`
+- `limit`
+- `offset`
+
+so clients can page deterministically.
+
+### Stats Endpoint
+The `/stats` endpoint computes aggregates directly in SQL for
+efficiency: total rows, unique senders, top senders, and min/max
+timestamps.
+
+---
+
+## Setup Used
+
+Development was done using:
+
+- VSCode
+- Git
+- Docker Desktop
+- Occasional ChatGPT prompts for scaffolding and debugging
+
+
 -------------------
+
 
 ## Suggested Manual Tests
 

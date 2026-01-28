@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, Header, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, validator
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import hmac
 import hashlib
 import re
@@ -18,7 +19,29 @@ from app.logging_utils import log_event
 app = FastAPI(title="Lyftr Webhook API")
 
 
+# Metrics
+
+
+HTTP_REQUESTS = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "path", "status"],
+)
+
+WEBHOOK_REQUESTS = Counter(
+    "webhook_requests_total",
+    "Total webhook requests",
+    ["result"],
+)
+
+REQUEST_LATENCY = Histogram(
+    "http_request_latency_ms",
+    "Request latency in ms",
+)
+
+
 # Logging Middleware
+
 
 
 @app.middleware("http")
@@ -31,6 +54,14 @@ async def logging_middleware(request: Request, call_next):
     response = await call_next(request)
 
     latency_ms = int((time.time() - start) * 1000)
+
+    HTTP_REQUESTS.labels(
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+    ).inc()
+
+    REQUEST_LATENCY.observe(latency_ms)
 
     log_event(
         level="INFO",
@@ -46,6 +77,7 @@ async def logging_middleware(request: Request, call_next):
 
 
 # Startup / Health
+
 
 
 @app.on_event("startup")
@@ -117,14 +149,21 @@ def verify_signature(secret: str, body: bytes, signature: str) -> bool:
 
     return hmac.compare_digest(computed, signature)
 
+
+
+# Stats Endpoint
+
+
+
 @app.get("/stats")
 async def stats():
     db_path = settings.DATABASE_URL.replace("sqlite:///", "")
-
     return await get_stats(db_path)
 
 
+
 # Webhook Endpoint
+
 
 
 @app.post("/webhook")
@@ -139,6 +178,8 @@ async def webhook(
     if not x_signature or not verify_signature(
         settings.WEBHOOK_SECRET, raw_body, x_signature
     ):
+        WEBHOOK_REQUESTS.labels(result="invalid_signature").inc()
+
         log_event(
             level="ERROR",
             request_id=request.state.request_id,
@@ -171,6 +212,8 @@ async def webhook(
 
     result = "created" if inserted else "duplicate"
 
+    WEBHOOK_REQUESTS.labels(result=result).inc()
+
     log_event(
         level="INFO",
         request_id=request.state.request_id,
@@ -190,6 +233,7 @@ async def webhook(
 # Messages Endpoint
 
 
+
 @app.get("/messages")
 async def get_messages(
     limit: int = Query(50, ge=1, le=100),
@@ -198,6 +242,10 @@ async def get_messages(
     since: str | None = None,
     q: str | None = None,
 ):
+    # Fix + being parsed as space
+    if from_:
+        from_ = from_.replace(" ", "+")
+
     db_path = settings.DATABASE_URL.replace("sqlite:///", "")
 
     data, total = await list_messages(
@@ -215,3 +263,13 @@ async def get_messages(
         "limit": limit,
         "offset": offset,
     }
+
+
+
+# Metrics Endpoint
+
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
