@@ -6,3 +6,5 @@ aiosqlite
 prometheus-client
 pytest
 httpx
+prometheus-client
+requests
