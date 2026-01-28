@@ -2,7 +2,7 @@ import aiosqlite
 
 CREATE_MESSAGES_TABLE = """
 CREATE TABLE IF NOT EXISTS messages (
-    message_ig TEXT PRIMARY KEY,
+    message_id TEXT PRIMARY KEY,
     from_msisdn TEXT NOT NULL,
     to_msisdn TEXT NOT NULL,
     ts TEXT NOT NULL,
