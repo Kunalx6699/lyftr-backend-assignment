@@ -11,7 +11,7 @@ import uuid
 
 from app.config import settings
 from app.models import init_db
-from app.storage import insert_message, list_messages
+from app.storage import insert_message, list_messages, get_stats
 from app.logging_utils import log_event
 
 
@@ -117,6 +117,11 @@ def verify_signature(secret: str, body: bytes, signature: str) -> bool:
 
     return hmac.compare_digest(computed, signature)
 
+@app.get("/stats")
+async def stats():
+    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+
+    return await get_stats(db_path)
 
 
 # Webhook Endpoint
