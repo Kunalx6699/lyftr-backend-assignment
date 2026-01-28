@@ -27,3 +27,55 @@ async def insert_message(db_path: str, msg: dict) -> bool:
             return True
     except aiosqlite.IntegrityError:
         return False
+
+async def list_messages(
+    db_path: str,
+    limit: int,
+    offset: int,
+    from_filter: str | None,
+    since: str | None,
+    q: str | None,
+):
+    async with aiosqlite.connect(db_path) as db:
+        base = "FROM messages WHERE 1=1"
+        params = []
+
+        if from_filter:
+            base += " AND from_msisdn = ?"
+            params.append(from_filter)
+
+        if since:
+            base += " AND ts >= ?"
+            params.append(since)
+
+        if q:
+            base += " AND lower(text) LIKE ?"
+            params.append(f"%{q.lower()}%")
+
+        # total count
+        cur = await db.execute(f"SELECT COUNT(*) {base}", params)
+        total = (await cur.fetchone())[0]
+
+        # data query
+        query = f"""
+            SELECT message_id, from_msisdn, to_msisdn, ts, text
+            {base}
+            ORDER BY ts ASC, message_id ASC
+            LIMIT ? OFFSET ?
+        """
+
+        cur = await db.execute(query, params + [limit, offset])
+        rows = await cur.fetchall()
+
+        data = [
+            {
+                "message_id": r[0],
+                "from": r[1],
+                "to": r[2],
+                "ts": r[3],
+                "text": r[4],
+            }
+            for r in rows
+        ]
+
+        return data, total

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Request, Header, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
 import hmac
@@ -11,11 +11,15 @@ import uuid
 
 from app.config import settings
 from app.models import init_db
-from app.storage import insert_message
+from app.storage import insert_message, list_messages
 from app.logging_utils import log_event
 
 
 app = FastAPI(title="Lyftr Webhook API")
+
+
+# Logging Middleware
+
 
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
@@ -39,6 +43,9 @@ async def logging_middleware(request: Request, call_next):
 
     return response
 
+
+
+# Startup / Health
 
 
 @app.on_event("startup")
@@ -74,6 +81,10 @@ async def ready():
         raise HTTPException(status_code=503, detail="not ready")
 
 
+
+# Webhook Validation
+
+
 E164_REGEX = re.compile(r"^\+[1-9]\d{1,14}$")
 
 
@@ -107,6 +118,10 @@ def verify_signature(secret: str, body: bytes, signature: str) -> bool:
     return hmac.compare_digest(computed, signature)
 
 
+
+# Webhook Endpoint
+
+
 @app.post("/webhook")
 async def webhook(
     request: Request,
@@ -135,7 +150,6 @@ async def webhook(
             status_code=401,
             content={"detail": "invalid signature"},
         )
-
 
     db_path = settings.DATABASE_URL.replace("sqlite:///", "")
 
@@ -166,3 +180,33 @@ async def webhook(
 
     return {"status": "ok"}
 
+
+
+# Messages Endpoint
+
+
+@app.get("/messages")
+async def get_messages(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    from_: str | None = Query(default=None, alias="from"),
+    since: str | None = None,
+    q: str | None = None,
+):
+    db_path = settings.DATABASE_URL.replace("sqlite:///", "")
+
+    data, total = await list_messages(
+        db_path=db_path,
+        limit=limit,
+        offset=offset,
+        from_filter=from_,
+        since=since,
+        q=q,
+    )
+
+    return {
+        "data": data,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
