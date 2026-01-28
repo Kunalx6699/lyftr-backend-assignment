@@ -6,13 +6,39 @@ import hashlib
 import re
 import os
 import aiosqlite
+import time
+import uuid
 
 from app.config import settings
 from app.models import init_db
 from app.storage import insert_message
+from app.logging_utils import log_event
 
 
 app = FastAPI(title="Lyftr Webhook API")
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    start = time.time()
+
+    request.state.request_id = request_id
+
+    response = await call_next(request)
+
+    latency_ms = int((time.time() - start) * 1000)
+
+    log_event(
+        level="INFO",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        latency_ms=latency_ms,
+    )
+
+    return response
+
 
 
 @app.on_event("startup")
@@ -93,10 +119,23 @@ async def webhook(
     if not x_signature or not verify_signature(
         settings.WEBHOOK_SECRET, raw_body, x_signature
     ):
+        log_event(
+            level="ERROR",
+            request_id=request.state.request_id,
+            method="POST",
+            path="/webhook",
+            status=401,
+            latency_ms=0,
+            result="invalid_signature",
+            message_id=payload.message_id if payload else None,
+            dup=False,
+        )
+
         return JSONResponse(
             status_code=401,
             content={"detail": "invalid signature"},
         )
+
 
     db_path = settings.DATABASE_URL.replace("sqlite:///", "")
 
@@ -111,4 +150,19 @@ async def webhook(
         },
     )
 
+    result = "created" if inserted else "duplicate"
+
+    log_event(
+        level="INFO",
+        request_id=request.state.request_id,
+        method="POST",
+        path="/webhook",
+        status=200,
+        latency_ms=0,
+        result=result,
+        message_id=payload.message_id,
+        dup=not inserted,
+    )
+
     return {"status": "ok"}
+
